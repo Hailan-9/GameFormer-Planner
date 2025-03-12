@@ -4,12 +4,16 @@ from common_utils import *
 from nuplan.planning.metrics.utils.expert_comparisons import principal_value
 
 
+# 类似于ST图，计算ST图（occupancy）
+# ref_path：1200， 6
 def occupancy_adpter(predictions, scores, neighbors, ref_path):
     best_mode = np.argmax(scores.cpu().numpy(), axis=-1)
     predictions = predictions.cpu().numpy()
+    # N,2
     neighbors = neighbors.cpu().numpy()
     
     best_predictions = [predictions[i, best_mode[i], :, :2] for i in range(predictions.shape[0])]
+    # N, 80, 2 frenet坐标系下
     prediction_F = [transform_to_Frenet(a, ref_path) for a in best_predictions]    
     len_path = ref_path.shape[0]
     if len_path < MAX_LEN * 10:
@@ -19,9 +23,10 @@ def occupancy_adpter(predictions, scores, neighbors, ref_path):
 
     for t in range(T * 10):
         for n, a in enumerate(prediction_F):
+            # a：frenet坐标系下的轨迹点
             if neighbors[n][0] == 0:
                 continue
-
+            # 只考虑当前时刻下，在自车前方的他车
             if a[0][0] <= 0:
                 continue
             
@@ -40,7 +45,7 @@ def occupancy_adpter(predictions, scores, neighbors, ref_path):
 
         if len_path < MAX_LEN * 10:
             time_occupancy[t][len_path:] = 1
-
+    # 为1表示占据 不可通行
     time_occupancy = np.reshape(time_occupancy, (T*10, -1, 10))
     time_occupancy = np.max(time_occupancy, axis=-1)
 

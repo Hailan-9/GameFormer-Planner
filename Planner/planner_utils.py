@@ -25,12 +25,16 @@ class TrajectoryPlanner:
     def plan(self, ego_state, ego_state_transformed, neighbors_state_transformed, 
              predictions, plan, scores, ref_path, observation):
         # Get the plan from the prediction model
+        # ego plan:(1, 80, 2)
         plan = plan[0].cpu().numpy()
 
         # Get the plan in the reference path
         if ref_path is not None:
+            # distance_to_ref 是一个矩阵，其形状为 (plan 的点数, ref_path 的点数)，表示每个 plan 点到每个 ref_path 点的距离。
             distance_to_ref = scipy.spatial.distance.cdist(plan[:, :2], ref_path[:, :2])
+            # 对每个 plan 点，找到在 ref_path 中距离最近的点。
             i = np.argmin(distance_to_ref, axis=1)
+            # 将 plan 更新为 ref_path 中最近点的坐标。
             plan = ref_path[i, :3]
             s = np.concatenate([[0], i]) * 0.1
             speed = np.diff(s) / DT
@@ -43,8 +47,11 @@ class TrajectoryPlanner:
         if ref_path is None:
             pass
         else:
+            # 第一个维度是bt，推理的时候，bt为1
             occupancy = occupancy_adpter(predictions[0], scores[0, 1:], neighbors_state_transformed[0], ref_path)
+            # 纵向速度 纵向距离
             ego_plan_ds = torch.from_numpy(speed).float().unsqueeze(0).to(self._device)
+            # (1, numbers)
             ego_plan_s = torch.from_numpy(s).float().unsqueeze(0).to(self._device)
             ego_state_transformed = ego_state_transformed.to(self._device)
             ref_path = torch.from_numpy(ref_path).unsqueeze(0).to(self._device)
@@ -54,9 +61,11 @@ class TrajectoryPlanner:
             s = s.squeeze(0).cpu().numpy()
             speed = speed.squeeze(0).cpu().numpy()
 
-            # Convert to Cartesian trajectory
+            # Convert to Cartesian trajectory 转到笛卡尔坐标系下！
             ref_path = ref_path.squeeze(0).cpu().numpy()
             i = (s * 10).astype(np.int32).clip(0, len(ref_path)-1)
+            # 速度和路径结合，形成最终的轨迹
+            # x y yaw 自车坐标系下
             plan = ref_path[i, :3]
 
         return plan
@@ -106,6 +115,7 @@ def wrap_to_pi(theta):
 def transform_to_ego_frame(path, ego_state):
     ego_x, ego_y, ego_h = ego_state.rear_axle.x, ego_state.rear_axle.y, ego_state.rear_axle.heading
     path_x, path_y = path[:, 0], path[:, 1]
+    # ego_x会自动广播
     ego_path_x = np.cos(ego_h) * (path_x - ego_x) + np.sin(ego_h) * (path_y - ego_y)
     ego_path_y = -np.sin(ego_h) * (path_x - ego_x) + np.cos(ego_h) * (path_y - ego_y)
     ego_path = np.stack([ego_path_x, ego_path_y], axis=-1)

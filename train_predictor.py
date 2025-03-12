@@ -8,7 +8,7 @@ from torch import nn, optim
 from GameFormer.predictor import GameFormer
 from torch.utils.data import DataLoader
 from GameFormer.train_utils import *
-
+# 根据项目的时间先后关系，DTPP的代码很多都是参考了这个仓库的代码！！！
 
 def train_epoch(data_loader, model, optimizer):
     epoch_loss = []

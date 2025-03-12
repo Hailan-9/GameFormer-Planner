@@ -105,9 +105,11 @@ class LatticePlanner:
         # Generate paths using state lattice
         paths = self.generate_paths(ego_state, candidate_paths)
 
-        # disable lane change in large intersections
+        # disable lane change in large intersections 
+        # 禁止在大型十字路口变道
         if len(traffic_light_data) > 0:
             self._just_stay_current = True
+            # 大型十字路口变道
         elif self.num_edges >= 4 and ego_state.dynamic_car_state.rear_axle_velocity_2d.x <= 3:
             self._just_stay_current = True
         else:
@@ -121,9 +123,10 @@ class LatticePlanner:
             cost = self.calculate_cost(path, obstacles, vehicles)
             if cost < min_cost:
                 min_cost = cost
+                # 最优path
                 optimal_path = path[0]
 
-        # Post-process the path
+        # Post-process the path 三次样条曲线插值之后，转到了自车后轴局部坐标系
         ref_path = self.post_process(optimal_path, ego_state)
 
         return ref_path
@@ -178,7 +181,7 @@ class LatticePlanner:
         cost = 10 * obstacles + 2 * out_boundary + 1 * lane_change  + 0.1 * curvature - 5 * target
 
         return cost
-
+    # 候选路径Path的后处理
     def post_process(self, path, ego_state):
         index = np.arange(0, len(path), 10)
         x = path[:, 0][index]
@@ -272,7 +275,7 @@ class LatticePlanner:
                 return 1
 
         return 0
-
+    # 计算路径的曲率
     @staticmethod
     def calculate_path_curvature(path):
         dx = np.gradient(path[:, 0])

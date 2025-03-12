@@ -2,7 +2,7 @@ import torch
 import theseus as th
 import matplotlib.pyplot as plt
 from common_utils import *
-
+# NOTE 轨迹微调模块没有参与训练！！！只是在推理的时候用
 
 def speed_constraint(optim_vars, aux_vars):
     ds = optim_vars[0].tensor
@@ -90,7 +90,9 @@ class RefinementPlanner:
         self.build_optimizer()
 
     def build_optimizer(self):
+        # 这里的变量是需要优化求解的变量，可以当做是待优化的参数
         control_variables = th.Vector(dof=self.N, name="ds")
+        # 定义变量，这里的变量是已知的变量，代入后续求解
         weights = {k: th.ScaleCostWeight(th.Variable(torch.tensor(v), name=f'gain_{k}')) for k, v in self.gains.items()}
         ego_state = th.Variable(torch.empty(1, 7), name="ego_state")
         occupancy = th.Variable(torch.empty(1, 30, MAX_LEN), name="occupancy")
@@ -100,16 +102,18 @@ class RefinementPlanner:
         objective = th.Objective()
         self.objective = self.build_cost_function(objective, control_variables, ego_state, ego_pred_plan, 
                                                   speed_limit, occupancy, weights)
+        # 定义优化方法
         self.optimizer = th.GaussNewton(objective, th.CholeskyDenseSolver, 
                                         max_iterations=20, 
                                         step_size=0.3,
                                         rel_err_tolerance=1e-3)
-        
+        # 构造优化问题
         self.layer = th.TheseusLayer(self.optimizer, vectorize=False)
         self.layer.to(device=self._device)
-
+    # 构造目标函数
     def build_cost_function(self, objective, control_variables, ego_state, ego_pred_plan, speed_limit, occupancy, weights, vectorize=True):
         # speed must be positive
+        # 传入的参数分别是优化变量、子目标函数的计算方程、维度、子目标函数的权重、是否使用自动求导、子目标函数的名称
         speed_hard = th.AutoDiffCostFunction([control_variables], speed_constraint, self.N, weights['hard_constraint'], 
                                              autograd_vectorize=vectorize, name="speed_constraint")
         objective.add(speed_hard)
@@ -143,24 +147,30 @@ class RefinementPlanner:
         end_cost = th.AutoDiffCostFunction([control_variables], end_condition, 1, weights['end'],
                                            aux_vars=[ego_pred_plan], autograd_vectorize=vectorize, name="end_condition")
         objective.add(end_cost)
-
+        # 总的优化目标
         return objective
 
     def plan(self, ego_state, init_plan, pred_plan, occupancy, ref_path):
         # initial plan
+        # .clamp(min=0) 是 PyTorch 中的一个方法，它会将 init_plan 中的所有元素限制在 min=0 以上。也就是说，如果 init_plan 中有任何元素小于 0，它们会被替换为 0；如果元素大于或等于 0，则保持不变。
+        # 纵向速度 frenet坐标系下
         ds = init_plan.clamp(min=0)
+        # ego预测出来的轨迹 在frenet坐标系下（reference path下）纵向轨迹。
         s = pred_plan[:, 1:].clamp(min=0)
 
         # occupancy grid
         grid = torch.arange(0, MAX_LEN).to(occupancy.device)
         mask = grid > s[:, :, None]
+        # 80 120 1
         occupancy = occupancy * mask
+        # 只考虑前三十个点
         occupancy = occupancy[:, :30]
 
         # set speed limit
         speed_limit = ref_path[:, :, 4]
 
         # update planner inputs
+        # NOTE 包含了待优化变量ds,同时也赋予了初始值
         planner_inputs = {
             "ds": ds,
             "s": s,
@@ -171,7 +181,10 @@ class RefinementPlanner:
         
         # plan
         _, info = self.layer.forward(planner_inputs, optimizer_kwargs={'track_best_solution': True})
+        # _, info = self.layer.forward(planner_inputs, optimizer_kwargs={'track_best_solution': True, "verbose":True})
+
         ds = info.best_solution['ds'].clamp(min=0)
+        # 累积行驶距离 也就是frenet坐标系下的纵向距离
         s = torch.cumsum(ds * DT, dim=-1).to(self._device)
 
         return s, ds

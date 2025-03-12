@@ -72,6 +72,7 @@ class Planner(AbstractPlanner):
         starting_block = None
         min_target_speed = 3
         max_target_speed = 15
+        # 自车后轴中心位置
         cur_point = (ego_state.rear_axle.x, ego_state.rear_axle.y)
         closest_distance = math.inf
 
@@ -91,6 +92,8 @@ class Planner(AbstractPlanner):
 
         # Get reference path, handle exception
         try:
+            # NOTE 三次样条曲线插值之后转到了自车后轴局部坐标系下
+            # np.array:(1200, 4)
             ref_path = self._path_planner.plan(ego_state, starting_block, observation, traffic_light_data)
         except:
             ref_path = None
@@ -98,8 +101,9 @@ class Planner(AbstractPlanner):
         if ref_path is None:
             return None
 
-        # Annotate red light to occupancy
+        # NOTE Annotate red light to occupancy 占据图！
         occupancy = np.zeros(shape=(ref_path.shape[0], 1))
+        # traffic_light_data是原始的交通灯数据
         for data in traffic_light_data:
             id_ = str(data.lane_connector_id)
             if data.status == TrafficLightStatusType.RED and id_ in self._candidate_lane_edge_ids:
@@ -126,6 +130,7 @@ class Planner(AbstractPlanner):
         K = len(predictions) // 2 - 1
         final_predictions = predictions[f'level_{K}_interactions'][:, 1:]
         final_scores = predictions[f'level_{K}_scores']
+        # 自车后轴中心局部坐标系下
         ego_current = features['ego_agent_past'][:, -1]
         neighbors_current = features['neighbor_agents_past'][:, :, -1]
 
@@ -135,15 +140,20 @@ class Planner(AbstractPlanner):
         # Construct input features
         features = observation_adapter(history, traffic_light_data, self._map_api, self._route_roadblock_ids, self._device)
 
-        # Get reference path
+        # Get reference path！！！即论文中的reference path！！！
+        # 最终的参考轨迹，后面frenet坐标转换的时候也会用到
+        # np.array:(1200, 6)
         ref_path = self._get_reference_path(ego_state, traffic_light_data, observation)
 
         # Infer prediction model
         with torch.no_grad():
+            # 返回的变量均是在自车后轴中心局部坐标系下
+            # 自车规划轨迹、他车多模态预测轨迹、每个模态的得分、自车和他车当前状态（自车局部坐标系下）
             plan, predictions, scores, ego_state_transformed, neighbors_state_transformed = self._get_prediction(features)
 
         # Trajectory refinement
         with torch.no_grad():
+            # ego_state_transformed neighbors_state_transformed均是在自车局部坐标系下
             plan = self._trajectory_planner.plan(ego_state, ego_state_transformed, neighbors_state_transformed, 
                                                  predictions, plan, scores, ref_path, observation)
             
@@ -151,12 +161,14 @@ class Planner(AbstractPlanner):
         trajectory = InterpolatedTrajectory(states)
 
         return trajectory
-    
+    # 和DTPP的部分代码一致
+    # NOTE 准确来讲，是DTPP的代码参考了这篇论文的这个开源代码
     def compute_planner_trajectory(self, current_input: PlannerInput):
         s = time.time()
         iteration = current_input.iteration.index
         history = current_input.history
         traffic_light_data = list(current_input.traffic_light_data)
+        # 自车状态 环境观测信息
         ego_state, observation = history.current_state
         trajectory = self._plan(ego_state, history, traffic_light_data, observation)
         print(f'Iteration {iteration}: {time.time() - s:.3f} s')

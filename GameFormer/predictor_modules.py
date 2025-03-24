@@ -92,6 +92,7 @@ class GMMPredictor(nn.Module):
     def forward(self, input):
         B, N, M, _ = input.shape
         traj = self.gaussian(input).view(B, N, M, self._future_len, 4) # mu_x, mu_y, log_sig_x, log_sig_y
+        # B N M 1--> B N M
         score = self.score(input).squeeze(-1)
 
         return traj, score
@@ -133,6 +134,7 @@ class InitialPredictionDecoder(nn.Module):
     def __init__(self, modalities, neighbors, dim=256):
         super(InitialPredictionDecoder, self).__init__()
         self._modalities = modalities
+        # NOTE 包含了自车和他车！
         self._agents = neighbors + 1
         self.multi_modal_query_embedding = nn.Embedding(modalities, dim)
         self.agent_query_embedding = nn.Embedding(self._agents, dim)
@@ -145,9 +147,11 @@ class InitialPredictionDecoder(nn.Module):
         N = self._agents
         multi_modal_query = self.multi_modal_query_embedding(self.modal)
         agent_query = self.agent_query_embedding(self.agent)
+        # (bt, N, 1, D) + (1, Modal, D) + (N ,1, D)
         query = encoding[:, :N, None] + multi_modal_query[None, :, :] + agent_query[:, None, :]
         query_content = torch.stack([self.query_encoder(query[:, i], encoding, encoding, mask) for i in range(N)], dim=1)
         predictions, scores = self.predictor(query_content)
+        #                       bt Neighbors modal--1 time---1 dim
         predictions[..., :2] += current_states[:, :N, None, None, :2]
 
         return query_content, predictions, scores
@@ -163,6 +167,7 @@ class InteractionDecoder(nn.Module):
         self.decoder = GMMPredictor()
 
     def forward(self, current_states, actors, scores, last_content, encoding, mask):
+        # NOTE 1+neighbors
         N = actors.shape[1]
         
         # using future encoder to encode the future trajectories
@@ -185,10 +190,11 @@ class InteractionDecoder(nn.Module):
 
         # using cross-attention to decode the future trajectories
         query = last_content + multi_futures
+        # bt, N, D
         query_content = torch.stack([self.query_encoder(query[:, i], encoding, encoding, mask[:, i]) for i in range(N)], dim=1)
         trajectories, scores = self.decoder(query_content)
         
-        # add the current states to the trajectories
+        # NOTE add the current states to the trajectories 最终的他车轨迹！！！
         trajectories[..., :2] += current_states[:, :N, None, None, :2]
 
         return query_content, trajectories, scores

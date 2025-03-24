@@ -72,6 +72,7 @@ class Decoder(nn.Module):
         encoding, mask = encoder_outputs['encoding'], encoder_outputs['mask']
 
         # level 0 decode
+        # NOTE 初始化预测器！！！
         last_content, last_level, last_score = self.initial_predictor(current_states, encoding, mask)
         decoder_outputs['level_0_interactions'] = last_level
         decoder_outputs['level_0_scores'] = last_score
@@ -129,7 +130,7 @@ class NeuralPlanner(nn.Module):
 
         return plan
     
-    
+# GameFormer模型    
 class GameFormer(nn.Module):
     def __init__(self, encoder_layers=6, decoder_levels=3, modalities=6, neighbors=10):
         super(GameFormer, self).__init__()

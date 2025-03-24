@@ -43,20 +43,26 @@ class DrivingData(Dataset):
 
         return ego, neighbors, map_lanes, map_crosswalks, route_lanes, ego_future_gt, neighbors_future_gt
 
-
+# gmm:(bt, N, modal, time, dim)
+# score:(bt, N, modal)
 def imitation_loss(gmm, scores, ground_truth):
     B, N = gmm.shape[0], gmm.shape[1]
+    # bt neighbors modal times dim
     distance = torch.norm(gmm[:, :, :, :, :2] - ground_truth[:, :, None, :, :2], dim=-1)
+    # bt N
     best_mode = torch.argmin(distance.mean(-1), dim=-1)
-
+    # 均值：分布的均值（mean） bt neighbors modal times dim
     mu = gmm[..., :2]
+    # B N T dim
     best_mode_mu = mu[torch.arange(B)[:, None, None], torch.arange(N)[None, :, None], best_mode[:, :, None]]
     best_mode_mu = best_mode_mu.squeeze(2)
     dx = ground_truth[..., 0] - best_mode_mu[..., 0]
     dy = ground_truth[..., 1] - best_mode_mu[..., 1]
-
+    # NOTE cov 通常用来表示一个分布的协方差（covariance）协方差是描述两个变量之间线性相关程度的度量。如果只涉及到一个变量，那么协方差就退化为方差（variance），方差是描述数据分散程度的度量。
     cov = gmm[..., 2:]
+    # bt N time dim
     best_mode_cov = cov[torch.arange(B)[:, None, None], torch.arange(N)[None, :, None], best_mode[:, :, None]]
+    # best_mode_cov.squeeze(2) 的作用是移除张量中第 2 个维度（索引为1的维度），前提是这个维度的大小为 1。这使得张量的形状从 (B, N, 1, D) 简化为 (B, N, D)，而数据内容保持不变。
     best_mode_cov = best_mode_cov.squeeze(2)
     log_std_x = torch.clamp(best_mode_cov[..., 0], -2, 2)
     log_std_y = torch.clamp(best_mode_cov[..., 1], -2, 2)
@@ -65,7 +71,7 @@ def imitation_loss(gmm, scores, ground_truth):
 
     gmm_loss = log_std_x + log_std_y + 0.5 * (torch.square(dx/std_x) + torch.square(dy/std_y))
     gmm_loss = torch.mean(gmm_loss)
-
+    # input:(bt, class, dK) target:(bt, dK)
     score_loss = F.cross_entropy(scores.permute(0, 2, 1), best_mode, label_smoothing=0.2, reduction='none')
     score_loss = score_loss * torch.ne(ground_truth[:, :, 0, 0], 0)
     score_loss = torch.mean(score_loss)
@@ -78,12 +84,16 @@ def imitation_loss(gmm, scores, ground_truth):
 def level_k_loss(outputs, ego_future, neighbors_future, neighbors_future_valid):
     loss: torch.tensor = 0
     levels = len(outputs.keys()) // 2 
+    # bt 1+agents
     gt_future = torch.cat([ego_future[:, None], neighbors_future], dim=1)
 
     for k in range(levels):
         trajectories = outputs[f'level_{k}_interactions']
         scores = outputs[f'level_{k}_scores']
+        # bt 1+agents
+        # agents trajs!
         predictions = trajectories[:, 1:] * neighbors_future_valid[:, :, None, :, 0, None]
+        # ego traj!
         plan = trajectories[:, :1]
         trajectories = torch.cat([plan, predictions], dim=1)
         il_loss, future, best_mode = imitation_loss(trajectories, scores, gt_future)

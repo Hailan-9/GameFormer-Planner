@@ -33,8 +33,10 @@ def train_epoch(data_loader, model, optimizer):
             # call the mdoel
             optimizer.zero_grad()
             level_k_outputs, ego_plan = model(inputs)
+            # level_k_loss
             loss, results = level_k_loss(level_k_outputs, ego_future, neighbors_future, neighbors_future_valid)
             prediction = results[:, 1:]
+            # 规划loss ego_plan size:bt times dim
             plan_loss = planning_loss(ego_plan, ego_future)
             loss += plan_loss
 

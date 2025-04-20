@@ -88,10 +88,12 @@ def level_k_loss(outputs, ego_future, neighbors_future, neighbors_future_valid):
     gt_future = torch.cat([ego_future[:, None], neighbors_future], dim=1)
 
     for k in range(levels):
+        # NOTE bt neighbors, modal time dim
         trajectories = outputs[f'level_{k}_interactions']
         scores = outputs[f'level_{k}_scores']
-        # bt 1+agents
+        # NOTE bt 1+agents
         # agents trajs!
+        # NOTE 进行了掩码的相关处理，过滤掉无效的轨迹！！！使得无效的轨迹loss为0！！！！！！！
         predictions = trajectories[:, 1:] * neighbors_future_valid[:, :, None, :, 0, None]
         # ego traj!
         plan = trajectories[:, :1]

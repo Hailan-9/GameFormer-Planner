@@ -7,6 +7,7 @@ from nuplan.planning.metrics.utils.expert_comparisons import principal_value
 # 类似于ST图，计算ST图（occupancy）
 # ref_path：1200， 6
 def occupancy_adpter(predictions, scores, neighbors, ref_path):
+    # NOTE 使用得分最高的的预测轨迹作为他车最终的轨迹预测！！！！！！！！
     best_mode = np.argmax(scores.cpu().numpy(), axis=-1)
     predictions = predictions.cpu().numpy()
     # N,2
